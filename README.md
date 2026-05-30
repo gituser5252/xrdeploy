@@ -85,11 +85,10 @@ Keep your existing SSH session open until you confirm a new key-based login work
 
 ---
 
-## Installation
 
-### Option A: reviewed installer, recommended
+## Install
 
-After logging in as your non-root sudo user, download and inspect the installer first:
+Safer review-first install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/install.sh -o install.sh
@@ -97,30 +96,31 @@ less install.sh
 sudo bash install.sh
 ```
 
-Replace `gituser5252` with your GitHub username after publishing the repository.
-
-### Option B: one-line installer, convenient but riskier
-
-Only use this if you trust the repository content you are piping into `sudo bash`:
+One-line install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/install.sh | sudo bash
 ```
 
-The installer also uses the official upstream XTLS installer for Xray Core. Review that upstream script too if you need a stricter security posture.
+One-line execution is convenient but means you trust the remote script and the upstream Xray installer.
 
-### Option B: manual install
+## Uninstall
+
+Safer review-first uninstall:
 
 ```bash
-sudo apt update
-sudo apt install -y curl ca-certificates openssl python3
-curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/xrdeploy -o xrdeploy
-chmod +x xrdeploy
-sudo mv xrdeploy /usr/local/bin/xrdeploy
-sudo xrdeploy
+curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/uninstall.sh -o uninstall.sh
+less uninstall.sh
+sudo bash uninstall.sh
 ```
 
----
+One-line uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/uninstall.sh | sudo bash
+```
+
+The uninstaller removes `/usr/local/bin/xrdeploy` and `/usr/local/lib/xrdeploy`. It asks before removing `/etc/xrdeploy` and before removing Xray itself. By default it creates a backup in `/root/xrdeploy-backup-YYYYMMDD-HHMMSS.tar.gz`.
 
 ## Usage
 
@@ -141,6 +141,8 @@ Menu:
 6) Validate config
 7) Restart Xray
 8) Check camouflage domain
+9) Export backup
+10) Uninstall xrdeploy
 0) Exit
 ```
 
@@ -205,6 +207,8 @@ Run from the menu:
 
 ```text
 8) Check camouflage domain
+9) Export backup
+10) Uninstall xrdeploy
 ```
 
 Or directly after installation:
@@ -238,8 +242,16 @@ sudo ufw allow 4433/tcp
 `xrdeploy` writes:
 
 ```text
+/usr/local/bin/xrdeploy
+/usr/local/lib/xrdeploy/
 /usr/local/etc/xray/config.json
 /etc/xrdeploy/state.json
+```
+
+Backups/export:
+
+```text
+/root/xrdeploy-backup-YYYYMMDD-HHMMSS.tar.gz
 ```
 
 Before overwriting the Xray config, it creates timestamped backups:

@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime
+import tarfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, quote
@@ -28,6 +29,7 @@ DEFAULT_SNI = "www.cloudflare.com"
 DEFAULT_DEST = "www.cloudflare.com:443"
 DEFAULT_FP = "chrome"
 REALITY_CHECK_PATHS = [Path("/usr/local/lib/xrdeploy/reality_check.sh"), Path(__file__).resolve().parent / "tools" / "reality_check.sh"]
+UNINSTALL_PATHS = [Path("/usr/local/lib/xrdeploy/uninstall.sh"), Path(__file__).resolve().parent / "uninstall.sh"]
 
 
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -365,6 +367,36 @@ def check_camouflage_domain() -> None:
     subprocess.run(cmd, check=False)
 
 
+
+def export_backup() -> None:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out = Path(f"/root/xrdeploy-backup-{stamp}.tar.gz")
+    with tarfile.open(out, "w:gz") as tar:
+        if STATE_DIR.exists():
+            tar.add(STATE_DIR, arcname="etc/xrdeploy")
+        if CONFIG_PATH.parent.exists():
+            tar.add(CONFIG_PATH.parent, arcname="usr/local/etc/xray")
+    os.chmod(out, 0o600)
+    print(f"Backup exported: {out}")
+
+
+def uninstall_menu() -> None:
+    print("\nUninstall xrdeploy")
+    print("This can remove xrdeploy files and optionally Xray/configs.")
+    if ask_yes_no("Export backup first?", True):
+        export_backup()
+
+    script = next((p for p in UNINSTALL_PATHS if p.exists()), None)
+    if script is not None:
+        subprocess.run([str(script)], check=False)
+        return
+
+    print("Uninstall script not found. Removing xrdeploy CLI/lib only.")
+    Path("/usr/local/bin/xrdeploy").unlink(missing_ok=True)
+    shutil.rmtree("/usr/local/lib/xrdeploy", ignore_errors=True)
+    if ask_yes_no("Remove /etc/xrdeploy state directory?", False):
+        shutil.rmtree(STATE_DIR, ignore_errors=True)
+
 def main_menu() -> None:
     need_root()
     while True:
@@ -379,6 +411,8 @@ XRDeploy
 6) Validate config
 7) Restart Xray
 8) Check camouflage domain
+9) Export backup
+10) Uninstall xrdeploy
 0) Exit
 """)
         choice = ask("Choose", "0")
@@ -402,6 +436,10 @@ XRDeploy
             print("Xray restarted.")
         elif choice == "8":
             check_camouflage_domain()
+        elif choice == "9":
+            export_backup()
+        elif choice == "10":
+            uninstall_menu()
         elif choice == "0":
             return
         else:
