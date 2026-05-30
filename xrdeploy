@@ -358,13 +358,18 @@ def check_camouflage_domain() -> None:
     no_external = ask_yes_no("Disable external ipinfo.io lookup?", True)
     no_install = ask_yes_no("Do not auto-install missing packages?", False)
 
-    cmd = [str(checker)]
+    cmd = ["bash", str(checker)]
     if no_install:
         cmd.append("--no-install")
     if no_external:
         cmd.append("--no-external")
     cmd.append(target)
-    subprocess.run(cmd, check=False)
+
+    print("\nRunning checks...\n")
+    rc = subprocess.run(cmd, check=False).returncode
+    if rc != 0:
+        print(f"\nDomain checker exited with code {rc}.")
+    input("\nPress Enter to return to the menu...")
 
 
 
