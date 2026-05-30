@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-XRDEPLOY_REPO="${XRDEPLOY_REPO:-https://raw.githubusercontent.com/gituser5252/xrdeploy/main}"
+XRDEPLOY_REPO="${XRDEPLOY_REPO:-https://raw.githubusercontent.com/USERNAME/xrdeploy/main}"
 XRDEPLOY_BIN="/usr/local/bin/xrdeploy"
 XRDEPLOY_LIB="/usr/local/lib/xrdeploy"
 

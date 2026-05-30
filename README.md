@@ -91,7 +91,7 @@ Keep your existing SSH session open until you confirm a new key-based login work
 Safer review-first install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/USERNAME/xrdeploy/main/install.sh -o install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -99,7 +99,7 @@ sudo bash install.sh
 One-line install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/USERNAME/xrdeploy/main/install.sh | sudo bash
 ```
 
 One-line execution is convenient but means you trust the remote script and the upstream Xray installer.
@@ -109,7 +109,7 @@ One-line execution is convenient but means you trust the remote script and the u
 Safer review-first uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/uninstall.sh -o uninstall.sh
+curl -fsSL https://raw.githubusercontent.com/USERNAME/xrdeploy/main/uninstall.sh -o uninstall.sh
 less uninstall.sh
 sudo bash uninstall.sh
 ```
@@ -117,7 +117,7 @@ sudo bash uninstall.sh
 One-line uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/uninstall.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/USERNAME/xrdeploy/main/uninstall.sh | sudo bash
 ```
 
 The uninstaller removes `/usr/local/bin/xrdeploy` and `/usr/local/lib/xrdeploy`. It asks before removing `/etc/xrdeploy` and before removing Xray itself. By default it creates a backup in `/root/xrdeploy-backup-YYYYMMDD-HHMMSS.tar.gz`.
@@ -281,7 +281,7 @@ If generated config validation fails, xrdeploy restores the latest backup automa
 Clone and run locally:
 
 ```bash
-git clone https://github.com/gituser5252/xrdeploy.git
+git clone https://github.com/USERNAME/xrdeploy.git
 cd xrdeploy
 sudo ./xrdeploy
 ```
@@ -293,6 +293,6 @@ git init
 git add .
 git commit -m "Initial commit"
 git branch -M main
-git remote add origin git@github.com:gituser5252/xrdeploy.git
+git remote add origin git@github.com:USERNAME/xrdeploy.git
 git push -u origin main
 ```
