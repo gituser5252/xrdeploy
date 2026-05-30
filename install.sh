@@ -3,6 +3,7 @@ set -euo pipefail
 
 XRDEPLOY_REPO="${XRDEPLOY_REPO:-https://raw.githubusercontent.com/gituser5252/xrdeploy/main}"
 XRDEPLOY_BIN="/usr/local/bin/xrdeploy"
+XRDEPLOY_LIB="/usr/local/lib/xrdeploy"
 
 echo "[xrdeploy] installing dependencies"
 apt update
@@ -14,8 +15,10 @@ if ! command -v xray >/dev/null 2>&1; then
 fi
 
 echo "[xrdeploy] installing xrdeploy CLI"
+install -d -m 755 "$XRDEPLOY_LIB"
 curl -fsSL "$XRDEPLOY_REPO/xrdeploy" -o "$XRDEPLOY_BIN"
-chmod +x "$XRDEPLOY_BIN"
+curl -fsSL "$XRDEPLOY_REPO/tools/reality_check.sh" -o "$XRDEPLOY_LIB/reality_check.sh"
+chmod +x "$XRDEPLOY_BIN" "$XRDEPLOY_LIB/reality_check.sh"
 
 echo "[xrdeploy] done"
 echo "Run: sudo xrdeploy"

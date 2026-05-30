@@ -97,7 +97,7 @@ less install.sh
 sudo bash install.sh
 ```
 
-Replace `USERNAME` with your GitHub username after publishing the repository.
+Replace `gituser5252` with your GitHub username after publishing the repository.
 
 ### Option B: one-line installer, convenient but riskier
 
@@ -140,6 +140,7 @@ Menu:
 5) Show xrdeploy state, redacted
 6) Validate config
 7) Restart Xray
+8) Check camouflage domain
 0) Exit
 ```
 
@@ -194,6 +195,27 @@ Client/Relay -> this Exit -> Internet
 The generated config contains a VLESS+Reality inbound and direct Internet outbound. The tool prints a VLESS link/parameters that can be used by a relay node.
 
 ---
+
+
+## Camouflage domain checker
+
+`xrdeploy` includes an optional helper for checking whether a domain is a reasonable Reality camouflage target. It checks DNS, ping, TLS 1.2/1.3, X25519, HTTP/2, HTTP/3 hints, redirects and likely CDN usage.
+
+Run from the menu:
+
+```text
+8) Check camouflage domain
+```
+
+Or directly after installation:
+
+```bash
+/usr/local/lib/xrdeploy/reality_check.sh --no-install --no-external example.com:443
+```
+
+Privacy note: the checker performs network requests to the domain being tested. By default the menu disables the extra `ipinfo.io` lookup; direct CLI users can pass `--no-external` to disable it too.
+
+The checker can install missing diagnostic tools unless `--no-install` is used. Review the script before running it on sensitive systems.
 
 ## Firewall
 

@@ -27,6 +27,7 @@ STATE_PATH = STATE_DIR / "state.json"
 DEFAULT_SNI = "www.cloudflare.com"
 DEFAULT_DEST = "www.cloudflare.com:443"
 DEFAULT_FP = "chrome"
+REALITY_CHECK_PATHS = [Path("/usr/local/lib/xrdeploy/reality_check.sh"), Path(__file__).resolve().parent / "tools" / "reality_check.sh"]
 
 
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -343,6 +344,27 @@ def show_state() -> None:
     print_redacted_json(STATE_PATH)
 
 
+def check_camouflage_domain() -> None:
+    checker = next((p for p in REALITY_CHECK_PATHS if p.exists()), None)
+    if checker is None:
+        print("Domain checker not found. Re-run install.sh or use tools/reality_check.sh from the repository.")
+        return
+
+    print("\nCamouflage domain check")
+    print("This command performs DNS, ping, TLS, HTTP, WHOIS and optional ipinfo.io checks.")
+    target = ask("Domain or domain:port to check", DEFAULT_SNI)
+    no_external = ask_yes_no("Disable external ipinfo.io lookup?", True)
+    no_install = ask_yes_no("Do not auto-install missing packages?", False)
+
+    cmd = [str(checker)]
+    if no_install:
+        cmd.append("--no-install")
+    if no_external:
+        cmd.append("--no-external")
+    cmd.append(target)
+    subprocess.run(cmd, check=False)
+
+
 def main_menu() -> None:
     need_root()
     while True:
@@ -356,6 +378,7 @@ XRDeploy
 5) Show xrdeploy state
 6) Validate config
 7) Restart Xray
+8) Check camouflage domain
 0) Exit
 """)
         choice = ask("Choose", "0")
@@ -377,6 +400,8 @@ XRDeploy
         elif choice == "7":
             run(["systemctl", "restart", "xray"], check=False)
             print("Xray restarted.")
+        elif choice == "8":
+            check_camouflage_domain()
         elif choice == "0":
             return
         else:
