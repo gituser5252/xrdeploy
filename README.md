@@ -87,28 +87,34 @@ Keep your existing SSH session open until you confirm a new key-based login work
 
 ## Installation
 
-### Option A: one-line installer
+### Option A: reviewed installer, recommended
 
-After logging in as your non-root sudo user:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/USERNAME/xrdeploy/main/install.sh | sudo bash
-```
-
-or:
+After logging in as your non-root sudo user, download and inspect the installer first:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/USERNAME/xrdeploy/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/install.sh -o install.sh
+less install.sh
+sudo bash install.sh
 ```
 
 Replace `USERNAME` with your GitHub username after publishing the repository.
+
+### Option B: one-line installer, convenient but riskier
+
+Only use this if you trust the repository content you are piping into `sudo bash`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/install.sh | sudo bash
+```
+
+The installer also uses the official upstream XTLS installer for Xray Core. Review that upstream script too if you need a stricter security posture.
 
 ### Option B: manual install
 
 ```bash
 sudo apt update
 sudo apt install -y curl ca-certificates openssl python3
-curl -fsSL https://raw.githubusercontent.com/USERNAME/xrdeploy/main/xrdeploy -o xrdeploy
+curl -fsSL https://raw.githubusercontent.com/gituser5252/xrdeploy/main/xrdeploy -o xrdeploy
 chmod +x xrdeploy
 sudo mv xrdeploy /usr/local/bin/xrdeploy
 sudo xrdeploy
@@ -130,8 +136,8 @@ Menu:
 1) Deploy standalone proxy      Client -> Xray -> Internet
 2) Deploy relay node            Client -> Relay -> Exit -> Internet
 3) Deploy exit node             Client/Relay -> Exit -> Internet
-4) Show Xray config
-5) Show xrdeploy state
+4) Show Xray config, redacted
+5) Show xrdeploy state, redacted
 6) Validate config
 7) Restart Xray
 0) Exit
@@ -214,17 +220,20 @@ sudo ufw allow 4433/tcp
 /etc/xrdeploy/state.json
 ```
 
-Before overwriting the Xray config, it creates:
+Before overwriting the Xray config, it creates timestamped backups:
 
 ```text
-/usr/local/etc/xray/config.json.bak
+/usr/local/etc/xray/config.json.bak.YYYYMMDD-HHMMSS
 ```
+
+If generated config validation fails, xrdeploy restores the latest backup automatically.
 
 ---
 
 ## Security notes
 
-- Do not publish private keys, UUIDs, or full client links.
+- Do not publish private keys, UUIDs, shortIds, or full client links.
+- Menu options that show config/state redact sensitive values by default.
 - The Reality public key is used by clients; the private key stays on the server.
 - For a relay chain, the relay has two separate Reality contexts:
   - inbound private key for clients connecting to the relay;
@@ -238,7 +247,7 @@ Before overwriting the Xray config, it creates:
 Clone and run locally:
 
 ```bash
-git clone https://github.com/USERNAME/xrdeploy.git
+git clone https://github.com/gituser5252/xrdeploy.git
 cd xrdeploy
 sudo ./xrdeploy
 ```
@@ -250,6 +259,6 @@ git init
 git add .
 git commit -m "Initial commit"
 git branch -M main
-git remote add origin git@github.com:USERNAME/xrdeploy.git
+git remote add origin git@github.com:gituser5252/xrdeploy.git
 git push -u origin main
 ```

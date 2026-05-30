@@ -16,6 +16,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, quote
@@ -60,11 +61,14 @@ def ask_yes_no(prompt: str, default: bool = True) -> bool:
     return value in {"y", "yes", "д", "да"}
 
 
-def backup_config() -> None:
-    if CONFIG_PATH.exists():
-        backup = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
-        shutil.copy2(CONFIG_PATH, backup)
-        print(f"Backup saved: {backup}")
+def backup_config() -> Path | None:
+    if not CONFIG_PATH.exists():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = CONFIG_PATH.with_name(f"{CONFIG_PATH.name}.bak.{stamp}")
+    shutil.copy2(CONFIG_PATH, backup)
+    print(f"Backup saved: {backup}")
+    return backup
 
 
 def ensure_dirs() -> None:
@@ -84,10 +88,11 @@ def save_state(state: dict[str, Any]) -> None:
     os.chmod(STATE_PATH, 0o600)
 
 
-def save_config(config: dict[str, Any]) -> None:
+def save_config(config: dict[str, Any]) -> Path | None:
     ensure_dirs()
-    backup_config()
+    backup = backup_config()
     CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return backup
 
 
 def xray_uuid() -> str:
@@ -196,13 +201,47 @@ def routing_all_to(outbound_tag: str, inbound_tag: str = "vless-reality-in") -> 
     }
 
 
-def validate_and_restart() -> None:
-    print("\nValidating Xray config...")
+def redact(value: Any) -> Any:
+    secret_keys = {
+        "id", "uuid", "privateKey", "publicKey", "shortId", "shortIds",
+        "password", "email", "client_link", "link", "public_key", "short_id"
+    }
+    if isinstance(value, dict):
+        return {k: ("[REDACTED]" if k in secret_keys else redact(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    return value
+
+
+def print_redacted_json(path: Path) -> None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        print(json.dumps(redact(data), indent=2, ensure_ascii=False))
+    except json.JSONDecodeError:
+        die(f"Invalid JSON: {path}")
+
+
+def validate_config() -> bool:
     result = run(["xray", "run", "-test", "-config", str(CONFIG_PATH)], check=False)
-    print(result.stdout.strip())
-    if result.returncode != 0:
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    if result.stderr.strip():
         print(result.stderr.strip())
-        die("Xray config validation failed. Backup was created before write.")
+    return result.returncode == 0
+
+
+def validate_or_rollback(backup: Path | None) -> None:
+    print("\nValidating Xray config...")
+    if validate_config():
+        return
+    if backup and backup.exists():
+        shutil.copy2(backup, CONFIG_PATH)
+        print(f"Validation failed. Restored backup: {backup}")
+    die("Xray config validation failed.")
+
+
+def validate_and_restart(backup: Path | None = None) -> None:
+    validate_or_rollback(backup)
     if ask_yes_no("Restart Xray now?", True):
         run(["systemctl", "restart", "xray"], check=False)
         print("Xray restarted.")
@@ -224,11 +263,11 @@ def deploy_standalone() -> None:
         "outbounds": ensure_standard_outbounds(),
         "routing": routing_all_to("direct"),
     }
-    save_config(config)
+    backup = save_config(config)
     save_state({"mode": "standalone", "uuid": uuid, "public_key": public_key, "short_id": short_id, "port": port, "sni": sni})
-    print("\nClient link:")
+    print("\nClient link. Do not publish it:")
     print(vless_link(public_addr, port, uuid, sni, public_key, short_id, "xrdeploy-standalone"))
-    validate_and_restart()
+    validate_and_restart(backup)
 
 
 def deploy_exit() -> None:
@@ -248,11 +287,11 @@ def deploy_exit() -> None:
         "outbounds": ensure_standard_outbounds(),
         "routing": routing_all_to("direct"),
     }
-    save_config(config)
+    backup = save_config(config)
     save_state({"mode": "exit", "uuid": uuid, "public_key": public_key, "short_id": short_id, "port": port, "sni": sni})
-    print("\nGive this link/parameters to the relay node:")
+    print("\nGive this link/parameters to the relay node. Do not publish it:")
     print(vless_link(public_addr, port, uuid, sni, public_key, short_id, "xrdeploy-exit"))
-    validate_and_restart()
+    validate_and_restart(backup)
 
 
 def deploy_relay() -> None:
@@ -283,25 +322,25 @@ def deploy_relay() -> None:
         ],
         "routing": routing_all_to("exit"),
     }
-    save_config(config)
+    backup = save_config(config)
     save_state({"mode": "relay", "uuid": uuid, "public_key": public_key, "short_id": short_id, "port": in_port, "sni": in_sni, "exit": {"address": out_address, "port": out_port, "sni": out_sni}})
-    print("\nClient link:")
+    print("\nClient link. Do not publish it:")
     print(vless_link(relay_public_addr, in_port, uuid, in_sni, public_key, short_id, "xrdeploy-relay"))
-    validate_and_restart()
+    validate_and_restart(backup)
 
 
 def show_config() -> None:
     if not CONFIG_PATH.exists():
         print("No Xray config found.")
         return
-    print(CONFIG_PATH.read_text(encoding="utf-8"))
+    print_redacted_json(CONFIG_PATH)
 
 
 def show_state() -> None:
     if not STATE_PATH.exists():
         print("No xrdeploy state found.")
         return
-    print(STATE_PATH.read_text(encoding="utf-8"))
+    print_redacted_json(STATE_PATH)
 
 
 def main_menu() -> None:
@@ -331,9 +370,10 @@ XRDeploy
         elif choice == "5":
             show_state()
         elif choice == "6":
-            result = run(["xray", "run", "-test", "-config", str(CONFIG_PATH)], check=False)
-            print(result.stdout)
-            print(result.stderr)
+            if validate_config():
+                print("Configuration OK.")
+            else:
+                print("Configuration failed.")
         elif choice == "7":
             run(["systemctl", "restart", "xray"], check=False)
             print("Xray restarted.")
