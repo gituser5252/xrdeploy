@@ -1,0 +1,13 @@
+Recommended chain setup:
+
+1. On VPS2, run xrdeploy and choose:
+   3) Deploy exit node
+
+2. Copy the generated exit link/parameters.
+
+3. On VPS1, run xrdeploy and choose:
+   2) Deploy relay node
+
+4. Paste VPS2 parameters into the relay wizard.
+
+5. Use the generated relay client link on your device.

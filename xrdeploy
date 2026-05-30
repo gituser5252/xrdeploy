@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""
+xrdeploy - interactive Xray VLESS+Reality deployment helper.
+
+Modes:
+  standalone: Client -> this Xray -> Internet
+  relay:      Client -> this Xray -> Exit Xray -> Internet
+  exit:       Client/Relay -> this Xray -> Internet
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlencode, quote
+
+CONFIG_PATH = Path("/usr/local/etc/xray/config.json")
+STATE_DIR = Path("/etc/xrdeploy")
+STATE_PATH = STATE_DIR / "state.json"
+DEFAULT_SNI = "www.cloudflare.com"
+DEFAULT_DEST = "www.cloudflare.com:443"
+DEFAULT_FP = "chrome"
+
+
+def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, text=True, capture_output=True, check=check)
+
+
+def cmd_output(cmd: list[str]) -> str:
+    return run(cmd).stdout.strip()
+
+
+def need_root() -> None:
+    if os.geteuid() != 0:
+        die("Run as root, for example: sudo xrdeploy")
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(f"ERROR: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def ask(prompt: str, default: str | None = None) -> str:
+    suffix = f" [{default}]" if default is not None else ""
+    value = input(f"{prompt}{suffix}: ").strip()
+    return value if value else (default or "")
+
+
+def ask_yes_no(prompt: str, default: bool = True) -> bool:
+    d = "Y/n" if default else "y/N"
+    value = input(f"{prompt} [{d}]: ").strip().lower()
+    if not value:
+        return default
+    return value in {"y", "yes", "д", "да"}
+
+
+def backup_config() -> None:
+    if CONFIG_PATH.exists():
+        backup = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
+        shutil.copy2(CONFIG_PATH, backup)
+        print(f"Backup saved: {backup}")
+
+
+def ensure_dirs() -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_state() -> dict[str, Any]:
+    if STATE_PATH.exists():
+        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+def save_state(state: dict[str, Any]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.chmod(STATE_PATH, 0o600)
+
+
+def save_config(config: dict[str, Any]) -> None:
+    ensure_dirs()
+    backup_config()
+    CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def xray_uuid() -> str:
+    try:
+        return cmd_output(["xray", "uuid"])
+    except Exception:
+        return cmd_output(["/usr/local/bin/xray", "uuid"])
+
+
+def xray_x25519() -> tuple[str, str]:
+    try:
+        output = cmd_output(["xray", "x25519"])
+    except Exception:
+        output = cmd_output(["/usr/local/bin/xray", "x25519"])
+    private_key = public_key = ""
+    for line in output.splitlines():
+        low = line.lower()
+        if low.startswith("private key:"):
+            private_key = line.split(":", 1)[1].strip()
+        elif low.startswith("public key:"):
+            public_key = line.split(":", 1)[1].strip()
+    if not private_key or not public_key:
+        die("Could not parse xray x25519 output")
+    return private_key, public_key
+
+
+def random_short_id() -> str:
+    return secrets.token_hex(8)
+
+
+def ensure_standard_outbounds() -> list[dict[str, Any]]:
+    return [
+        {"tag": "direct", "protocol": "freedom"},
+        {"tag": "block", "protocol": "blackhole"},
+    ]
+
+
+def make_vless_reality_inbound(tag: str, port: int, sni: str, dest: str, uuid: str, private_key: str, short_id: str) -> dict[str, Any]:
+    return {
+        "tag": tag,
+        "listen": "0.0.0.0",
+        "port": port,
+        "protocol": "vless",
+        "settings": {
+            "clients": [{"id": uuid, "flow": "xtls-rprx-vision"}],
+            "decryption": "none",
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "reality",
+            "realitySettings": {
+                "show": False,
+                "dest": dest,
+                "xver": 0,
+                "serverNames": [sni],
+                "privateKey": private_key,
+                "shortIds": [short_id],
+            },
+        },
+        "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic"]},
+    }
+
+
+def make_vless_reality_outbound(tag: str, address: str, port: int, uuid: str, sni: str, public_key: str, short_id: str) -> dict[str, Any]:
+    return {
+        "tag": tag,
+        "protocol": "vless",
+        "settings": {
+            "vnext": [{
+                "address": address,
+                "port": port,
+                "users": [{"id": uuid, "encryption": "none", "flow": "xtls-rprx-vision"}],
+            }]
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "reality",
+            "realitySettings": {
+                "serverName": sni,
+                "fingerprint": DEFAULT_FP,
+                "publicKey": public_key,
+                "shortId": short_id,
+                "spiderX": "/",
+            },
+        },
+    }
+
+
+def vless_link(address: str, port: int, uuid: str, sni: str, public_key: str, short_id: str, name: str) -> str:
+    params = {
+        "type": "tcp",
+        "security": "reality",
+        "pbk": public_key,
+        "fp": DEFAULT_FP,
+        "sni": sni,
+        "sid": short_id,
+        "flow": "xtls-rprx-vision",
+    }
+    return f"vless://{uuid}@{address}:{port}?{urlencode(params)}#{quote(name)}"
+
+
+def routing_all_to(outbound_tag: str, inbound_tag: str = "vless-reality-in") -> dict[str, Any]:
+    return {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [{"type": "field", "inboundTag": [inbound_tag], "outboundTag": outbound_tag}],
+    }
+
+
+def validate_and_restart() -> None:
+    print("\nValidating Xray config...")
+    result = run(["xray", "run", "-test", "-config", str(CONFIG_PATH)], check=False)
+    print(result.stdout.strip())
+    if result.returncode != 0:
+        print(result.stderr.strip())
+        die("Xray config validation failed. Backup was created before write.")
+    if ask_yes_no("Restart Xray now?", True):
+        run(["systemctl", "restart", "xray"], check=False)
+        print("Xray restarted.")
+
+
+def deploy_standalone() -> None:
+    print("\nStandalone: Client -> this Xray -> Internet")
+    port = int(ask("Inbound port", "443"))
+    sni = ask("Reality SNI", DEFAULT_SNI)
+    dest = ask("Reality dest", f"{sni}:443")
+    public_addr = ask("Public IP/domain for client link", "YOUR_SERVER_IP")
+    uuid = xray_uuid()
+    private_key, public_key = xray_x25519()
+    short_id = random_short_id()
+
+    config = {
+        "log": {"loglevel": "warning"},
+        "inbounds": [make_vless_reality_inbound("vless-reality-in", port, sni, dest, uuid, private_key, short_id)],
+        "outbounds": ensure_standard_outbounds(),
+        "routing": routing_all_to("direct"),
+    }
+    save_config(config)
+    save_state({"mode": "standalone", "uuid": uuid, "public_key": public_key, "short_id": short_id, "port": port, "sni": sni})
+    print("\nClient link:")
+    print(vless_link(public_addr, port, uuid, sni, public_key, short_id, "xrdeploy-standalone"))
+    validate_and_restart()
+
+
+def deploy_exit() -> None:
+    print("\nExit node: Client/Relay -> this Xray -> Internet")
+    print("Use this on the final VPS in a chain.")
+    port = int(ask("Inbound port", "443"))
+    sni = ask("Reality SNI", DEFAULT_SNI)
+    dest = ask("Reality dest", f"{sni}:443")
+    public_addr = ask("Public IP/domain for relay/client link", "YOUR_EXIT_IP")
+    uuid = xray_uuid()
+    private_key, public_key = xray_x25519()
+    short_id = random_short_id()
+
+    config = {
+        "log": {"loglevel": "warning"},
+        "inbounds": [make_vless_reality_inbound("vless-reality-in", port, sni, dest, uuid, private_key, short_id)],
+        "outbounds": ensure_standard_outbounds(),
+        "routing": routing_all_to("direct"),
+    }
+    save_config(config)
+    save_state({"mode": "exit", "uuid": uuid, "public_key": public_key, "short_id": short_id, "port": port, "sni": sni})
+    print("\nGive this link/parameters to the relay node:")
+    print(vless_link(public_addr, port, uuid, sni, public_key, short_id, "xrdeploy-exit"))
+    validate_and_restart()
+
+
+def deploy_relay() -> None:
+    print("\nRelay: Client -> this Xray -> Exit Xray -> Internet")
+    in_port = int(ask("Relay inbound port for clients", "443"))
+    in_sni = ask("Relay Reality SNI", DEFAULT_SNI)
+    in_dest = ask("Relay Reality dest", f"{in_sni}:443")
+    relay_public_addr = ask("Public IP/domain of this relay for client link", "YOUR_RELAY_IP")
+
+    print("\nExit node parameters:")
+    out_address = ask("Exit node IP/domain")
+    out_port = int(ask("Exit node port", "443"))
+    out_uuid = ask("Exit node UUID")
+    out_sni = ask("Exit node SNI", DEFAULT_SNI)
+    out_public_key = ask("Exit node public key")
+    out_short_id = ask("Exit node shortId", "")
+
+    uuid = xray_uuid()
+    private_key, public_key = xray_x25519()
+    short_id = random_short_id()
+
+    config = {
+        "log": {"loglevel": "warning"},
+        "inbounds": [make_vless_reality_inbound("vless-reality-in", in_port, in_sni, in_dest, uuid, private_key, short_id)],
+        "outbounds": [
+            make_vless_reality_outbound("exit", out_address, out_port, out_uuid, out_sni, out_public_key, out_short_id),
+            *ensure_standard_outbounds(),
+        ],
+        "routing": routing_all_to("exit"),
+    }
+    save_config(config)
+    save_state({"mode": "relay", "uuid": uuid, "public_key": public_key, "short_id": short_id, "port": in_port, "sni": in_sni, "exit": {"address": out_address, "port": out_port, "sni": out_sni}})
+    print("\nClient link:")
+    print(vless_link(relay_public_addr, in_port, uuid, in_sni, public_key, short_id, "xrdeploy-relay"))
+    validate_and_restart()
+
+
+def show_config() -> None:
+    if not CONFIG_PATH.exists():
+        print("No Xray config found.")
+        return
+    print(CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def show_state() -> None:
+    if not STATE_PATH.exists():
+        print("No xrdeploy state found.")
+        return
+    print(STATE_PATH.read_text(encoding="utf-8"))
+
+
+def main_menu() -> None:
+    need_root()
+    while True:
+        print("""
+XRDeploy
+
+1) Deploy standalone proxy      Client -> Xray -> Internet
+2) Deploy relay node            Client -> Relay -> Exit -> Internet
+3) Deploy exit node             Client/Relay -> Exit -> Internet
+4) Show Xray config
+5) Show xrdeploy state
+6) Validate config
+7) Restart Xray
+0) Exit
+""")
+        choice = ask("Choose", "0")
+        if choice == "1":
+            deploy_standalone()
+        elif choice == "2":
+            deploy_relay()
+        elif choice == "3":
+            deploy_exit()
+        elif choice == "4":
+            show_config()
+        elif choice == "5":
+            show_state()
+        elif choice == "6":
+            result = run(["xray", "run", "-test", "-config", str(CONFIG_PATH)], check=False)
+            print(result.stdout)
+            print(result.stderr)
+        elif choice == "7":
+            run(["systemctl", "restart", "xray"], check=False)
+            print("Xray restarted.")
+        elif choice == "0":
+            return
+        else:
+            print("Unknown option.")
+
+
+if __name__ == "__main__":
+    main_menu()
