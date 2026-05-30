@@ -61,38 +61,72 @@ function detect_package_manager() {
   fi
 }
 
-function check_and_install_command() {
+function package_for_command() {
   local cmd="$1"
-  if ! command -v "$cmd" &>/dev/null; then
-    if [ "$NO_INSTALL" -eq 1 ]; then
-      echo -e "${RED}Missing command: $cmd. Install it manually or run without --no-install.${RESET}"
-      exit 1
-    fi
-    echo "Installing $cmd..."
-    if [ "$PKG_MGR" = "yum" ]; then
-      sudo yum install -y "$cmd" >/dev/null 2>&1
-    else
-      sudo apt-get update >/dev/null 2>&1
-      sudo apt-get install -y "$cmd" >/dev/null 2>&1
-    fi
-    if ! command -v "$cmd" &>/dev/null; then
-      echo -e "${RED}Failed to install '$cmd'. Please install manually.${RESET}"
-      exit 1
-    else
-      echo "$cmd installed successfully."
-    fi
+
+  if [ "$PKG_MGR" = "yum" ]; then
+    case "$cmd" in
+      dig) echo "bind-utils" ;;
+      ping|ping6) echo "iputils" ;;
+      *) echo "$cmd" ;;
+    esac
+  else
+    case "$cmd" in
+      dig) echo "dnsutils" ;;
+      ping|ping6) echo "iputils-ping" ;;
+      *) echo "$cmd" ;;
+    esac
   fi
+}
+
+function install_missing_commands() {
+  local missing_cmds=()
+  local missing_pkgs=()
+  local cmd pkg
+
+  for cmd in "$@"; do
+    if ! command -v "$cmd" &>/dev/null; then
+      missing_cmds+=("$cmd")
+      pkg="$(package_for_command "$cmd")"
+      if [[ ! " ${missing_pkgs[*]} " =~ " ${pkg} " ]]; then
+        missing_pkgs+=("$pkg")
+      fi
+    fi
+  done
+
+  if [ "${#missing_cmds[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  if [ "$NO_INSTALL" -eq 1 ]; then
+    echo -e "${RED}Missing commands: ${missing_cmds[*]}.${RESET}"
+    echo "Install packages manually: ${missing_pkgs[*]}"
+    exit 1
+  fi
+
+  echo "Installing missing packages: ${missing_pkgs[*]}"
+  if [ "$PKG_MGR" = "yum" ]; then
+    sudo yum install -y "${missing_pkgs[@]}" >/dev/null
+  else
+    sudo apt-get update >/dev/null
+    sudo apt-get install -y "${missing_pkgs[@]}" >/dev/null
+  fi
+
+  for cmd in "${missing_cmds[@]}"; do
+    if ! command -v "$cmd" &>/dev/null; then
+      echo -e "${RED}Failed to install command '$cmd'. Package attempted: $(package_for_command "$cmd")${RESET}"
+      exit 1
+    fi
+  done
 }
 
 detect_package_manager
 NEEDED_CMDS=(openssl curl dig whois ping bc)
-for cmd in "${NEEDED_CMDS[@]}"; do
-  check_and_install_command "$cmd"
-done
+install_missing_commands "${NEEDED_CMDS[@]}"
 
 # --- 1) DNS resolve
-dns_v4=$(dig +short A "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
-dns_v6=$(dig +short AAAA "$DOMAIN" | grep -E '^[0-9A-Fa-f:]+$')
+dns_v4=$(dig +short A "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true)
+dns_v6=$(dig +short AAAA "$DOMAIN" | grep -E '^[0-9A-Fa-f:]+$' || true)
 
 main_ip=""
 if [ -n "$dns_v4" ]; then
@@ -197,7 +231,7 @@ if [ -n "$main_ip" ]; then
     else
       HTTP_N+=("HTTP/3: No")
     fi
-    sc=$(echo "$line1" | awk '{print $2}')
+    sc=$(echo "$line1" | awk '{print $2}' || true)
     if [[ "$sc" =~ ^3[0-9]{2}$ ]]; then
       loc=$(echo "$curl_out" | grep -i '^Location:' | sed 's/Location: //i')
       [ -z "$loc" ] && loc="(No Location?)"
